@@ -1,0 +1,499 @@
+---
+title: "Lista de ejercicios 2 - Análisis de regresión"
+subtitle: "Ciclo nivelación 2025-2"
+author: "Mg. Sc. J. Eduardo Gamboa U."
+format: pdf
+editor: visual
+---
+
+En un curso universitario de Estadística General, se busca analizar qué factores influyen en el tiempo que un estudiante tarda en resolver un examen.
+
+Antes del examen, los estudiantes rindieron una prueba diagnóstica para medir conocimientos previos. Además, se registraron las horas de estudio realizadas la semana anterior al examen, y se aplicó un breve cuestionario de ansiedad ante evaluaciones.
+
+Durante el examen final se registró el tiempo de resolución en minutos. Los datos se encuentran en el archivo **Lista2_datos.csv**
+
+Las variables son:
+
+-   time_minutes: tiempo de resolución del examen final (minutos)
+
+-   diagnostic_score: puntaje en la prueba diagnóstica
+
+-   prior_study_hours: tiempo de estudio (horas)
+
+-   anxiety_level: nivel de ansiedad (escala ordinal de 1 a 10)
+
+1.  Presentar y comentar un gráfico que permite ver las asociaciones entre las variables en estudio.
+
+```{r warning=F, message=F}
+datos = read.csv('Lista2_datos.csv')
+datos |> head()
+
+pairs(datos, main = "Matriz de dispersión entre variables", pch = 19, 
+      col = rgb(0, 0, 0, 0.5))
+
+library(corrplot)
+corrplot(cor(datos), method = "color",      
+        type = "upper", addCoef.col = "black", tl.col = "black")
+
+library(PerformanceAnalytics)
+chart.Correlation(datos)
+```
+
+La asociación entre el tiempo de resolución del examen y el puntaje de la prueba diagnóstica es directa o positiva, pero no está tan marcada. Por otro lado, el tiempo de resolución del examen se asocia de manera negativa o inversa y fuerte con el puntaje de la prueba diagnóstica. Finalmente, la asociación entre el nivel de ansiedad y el tiempo de resolución de la prueba, es positiva pero parece no ser lineal.
+
+2.  Formular el modelo de regresión lineal.
+
+$$Y=\beta_0+\beta_1X_1+\beta_2X_2+\beta_3x_3+\epsilon,\quad \epsilon\sim N(0,\sigma^2)$$ donde:
+
+-   $Y$: Tiempo de resolución del examen (variable respuesta)
+
+-   $X_1$: puntaje en la prueba diagnóstica (variable independiente)
+
+-   $X_2$: Horas de estudio (variable independiente)
+
+-   $X_3$: Nivel de ansiedad (variable independiente)
+
+-   $\beta_0$: Intercepto del modelo de regresión lineal
+
+-   $\beta_1,\beta_2,\beta_3$: coeficientes del modelo de regresión lineal
+
+-   $\epsilon$: error aleatorio del modelo de regresión lineal
+
+3.  Presentar el modelo de regresión lineal estimado.
+
+```{r}
+modelo1 <- lm(time_minutes ~ diagnostic_score + prior_study_hours + anxiety_level, 
+             data = datos)
+ 
+coef(modelo1)
+```
+
+$$\hat{Y} = 220.66 - 1.52X_1-5.2X_2+6.48X_3$$
+
+4.  Analizar el cumplimiento del supuesto de normalidad de errores.
+
+```{r}
+modelo1 |> residuals() -> res1
+
+library(ggplot2)
+data.frame(res1) |>
+  ggplot(aes(x=res1,))+
+  geom_histogram(aes(y =..density..),
+                 bins = round(1+3.3*log10(nrow(datos))),
+                 fill = "dodgerblue2",
+                 alpha = 0.6)+
+  geom_density(size = 1.5)+
+  labs(x="Residuales",y="Densidad")+
+  theme_minimal()
+```
+
+Se aprecia asimetría en la distribución de los residuales, y una posible leptocurtosis, debido al apuntalamiento en el centro.
+
+```{r}
+data.frame(res1) |>
+  ggplot(aes(sample=res1))+
+  stat_qq(size = 2) +
+  stat_qq_line(distribution = stats::qnorm)+
+  labs(x = "Cuantil teórico", y = "Residuales")+
+  theme_minimal()
+```
+
+Los puntos se alejan de la recta hacia el lado superior o derecho. Eso es señal de asimetría, lo que complicaría el cumplimiento del supuesto de normalidad de errores.
+
+$H_0: As = 0 \qquad H_1: As \neq 0 \qquad \alpha=0.05$
+
+```{r message=FALSE, warning=F}
+library(moments)
+res1 |> agostino.test()
+```
+
+Se rechaza $H_0$, entonces existe evidencia de que el coeficiente de asimetría es distinto de cero (existe asimetría).
+
+$H_0: K = 3 \qquad H_1: K \neq 3 \qquad \alpha=0.05$
+
+```{r}
+res1 |> anscombe.test()
+```
+
+Se rechaza $H_0$, entonces existe evidencia de que el coeficiente de kurtosis es distinto de tres (los errores no son mesocúrticos).
+
+Por lo tanto, al no ser simétricos ni mesocúrticos, seguimos acumulando evidencias que nos alejan de la normalidad.
+
+$H_0$: los errores siguen una distribución normal
+
+$H_1$: los errores no siguen una distribución normal
+
+$\alpha=0.05$
+
+```{r}
+res1 |> shapiro.test()
+
+library(nortest)
+res1 |> ad.test()
+
+res1 |> lillie.test()
+```
+
+Las pruebas de normalidad dan evidencia de que los errores no siguen una distribución normal.
+
+**En conclusión, no se cumple el supuesto de normalidad de errores.**
+
+5.  Analizar el cumplimiento del supuesto de homocedasticidad de errores.
+
+```{r}
+modelo1 |> plot(which=1)
+modelo1 |> plot(which=3)
+```
+
+En la primera gráfica (residuals vs fitted), las líneas que deberian "envolver" los puntos divergen cuando los valores ajustados crecen, de modo que los puntos no están homogéneamente distribuidos. Esto es una señal de heterocedasticidad.
+
+![](images/clipboard-3085160631.png)
+
+A diferencia de la primera gráfica, en Scale - Location no se aprecia una gran diferencia en la variabilidad de los puntos.
+
+```{r}
+library(broom)
+modelo1 |> augment() |>
+  ggplot(aes(x=diagnostic_score,y=.resid))+
+  geom_point(size = 3) +
+  geom_hline(yintercept=0)+
+  labs(x = "Puntaje de diagnóstico",
+       y = "Residual",
+       title = "Evaluación de homocedasticidad",
+       subtitle = "Modelo")+
+  theme_minimal()
+```
+
+Los residuales tienden a ser más dispersos cuando el puntaje de diagnóstico es bajo.
+
+```{r}
+modelo1 |> augment() |>
+  ggplot(aes(x=prior_study_hours,y=.resid))+
+  geom_point(size = 3) +
+  geom_hline(yintercept=0)+
+  labs(x = "Horas de estudio",
+       y = "Residual",
+       title = "Evaluación de homocedasticidad",
+       subtitle = "Modelo")+
+  theme_minimal()
+```
+
+Los residuales presentan baja dispersión cuando las horas de estudio son inferiores.
+
+```{r}
+modelo1 |> augment() |>
+  ggplot(aes(x=anxiety_level,y=.resid))+
+  geom_point(size = 3) +
+  geom_hline(yintercept=0)+
+  labs(x = "Nivel de ansiedad",
+       y = "Residual",
+       title = "Evaluación de homocedasticidad",
+       subtitle = "Modelo")+
+  theme_minimal()
+```
+
+Los residuales presentan mayor dispersión cuando los niveles de ansiedad son altos.
+
+Entonces, al formarse patrones de residuales según los valores de la variable respuesta, es una evidencia más de que exista heterocedasticidad.
+
+$H_0$: la varianza de los errores es constante
+
+$H_1$: la varianza de los errores no es constante
+
+$\alpha = 0.05$
+
+```{r warning=FALSE}
+library(car)
+modelo1 |> ncvTest()
+```
+
+Se rechaza la hipótesis nula, por lo tanto **no se verifica el supuesto de homogeneidad de varianzas de los errores.**
+
+6.  Analizar el cumplimiento del supuesto de independencia de errores.
+
+```{r}
+data.frame(res1) |>
+  ggplot(aes(x=1:nrow(datos),y=res1))+
+  geom_point(size = 1.5) +
+  geom_line()+
+  geom_hline(yintercept=0)+
+  labs(x = "Orden", y = "Residual", title = "Evaluación de independencia") + 
+  theme_minimal()
+```
+
+Visualizamos una primera evidencia de independencia de errores por la aleatoriedad de los puntos
+
+```{r}
+library(ggfortify)
+res1 |>
+  TSA::acf(lag = 18, plot=F) |>
+  autoplot() +
+  labs(x = "Desfase",y = "Autocorrelación") +
+  theme_minimal()
+```
+
+Todas las autocorrelaciones son estadísticamente iguales a cero (están dentro de las límites azules de confianza), lo que evidenciaría independencia de errores.
+
+$H_0$: Los errores son independientes
+
+$H_1$: Los errores no son independientes
+
+$\alpha=0.05$
+
+```{r}
+library(car)
+modelo1 |> 
+  durbinWatsonTest(alternative = "two.sided",
+                   max.lag = 10,
+                   reps = 1e5)
+```
+
+Se recomienda evaluar qué sucede a cada 8 filas, porque se ha encontrado una ligera autocorrelación en ese desfase. Por lo demás, no se evidencia falta de independencia.
+
+7.  En caso de incumplimiento de modelo, aplicar las siguientes transformaciones y comparar sus efectos: Raíz cuadrada, logaritmo, Box Cox, Mínimos cuadrados ponderados.
+
+El principal problema detectado es la falta de normalidad y homocedasticidad de errores
+
+a.  Transformación raíz cuadrada (modelo2)
+
+```{r}
+library(dplyr)
+datos |> 
+  mutate(raiz_tiempo = sqrt(time_minutes)) -> datos
+modelo2 <- lm(raiz_tiempo ~ diagnostic_score + prior_study_hours + anxiety_level, datos)
+modelo2 |> residuals() -> res2
+```
+
+b.  Transformación logaritmo (modelo3)
+
+```{r}
+library(dplyr)
+datos |> 
+  mutate(log_tiempo = log(time_minutes)) -> datos
+modelo3 <- lm(log_tiempo ~ diagnostic_score + prior_study_hours + anxiety_level, datos)
+modelo3 |> residuals() -> res3
+```
+
+c.  Transformación Box Cox (modelo3)
+
+```{r}
+library(MASS)
+modelo1 |> boxcox()
+```
+
+Box Cox sugiere usar $\lambda=0$, lo que significa la transformación logaritmo, la cual ya se ejecutó en el caso b.
+
+d.  Mínimos cuadrados ponderados (modelo4)
+
+```{r}
+pesos = datos$diagnostic_score
+modelo4 <- lm(time_minutes ~ diagnostic_score + prior_study_hours + anxiety_level,
+              datos,
+              weights = pesos)
+modelo4 |> residuals() -> res4
+```
+
+8.  Presentar un cuadro comparativo y elegir el mejor modelo. Resolver las preguntas que siguen utilizando dicho mejor modelo.
+
+**Analizando el modelo 2:**
+
+$H_0:$ Los errores siguen una distribución Normal
+
+$H_1:$ Los errores no siguen una distribución Normal
+
+```{r}
+res2 |> shapiro.test()
+```
+
+No se verifica el supuesto de normalidad de errores.
+
+$H_0:$ Los errores tienen varianza constante
+
+$H_1:$ Los errores no tienen varianza constante
+
+```{r}
+modelo2 |> ncvTest()
+```
+
+No se verifica el supuesto de homocedasticidad de errores.
+
+$H_0:$ Los errores son independientes
+
+$H_1:$ Los errores no son independientes
+
+```{r}
+modelo2 |> durbinWatsonTest(alternative ="two.sided",
+                            max.lag =10,reps =1e5)
+```
+
+No se verifica la independencia de errores, se debe analizar qué sucede a cada 4 y 8 observaciones.
+
+Por tanto, el modelo 2 queda descartado.
+
+**Pasemos al modelo 3**
+
+$H_0:$ Los errores siguen una distribución Normal
+
+$H_1:$ Los errores no siguen una distribución Normal
+
+```{r}
+res3 |> shapiro.test()
+```
+
+No se rechaza $H_0$, por lo que se cumple el supuesto de normalidad de errores.
+
+$H_0:$ Los errores tienen varianza constante
+
+$H_1:$ Los errores no tienen varianza constante
+
+```{r}
+modelo3 |> ncvTest()
+```
+
+No se rechaza $H_0$, por lo que se cumple el supuesto de homocedasticidad de errores.
+
+$H_0:$ Los errores son independientes
+
+$H_1:$ Los errores no son independientes
+
+```{r}
+modelo3 |> durbinWatsonTest(alternative ="two.sided",
+                            max.lag =10,reps =1e5)
+```
+
+No se verifica la independencia de errores, se debe analizar qué sucede a cada 4 y 8 observaciones.
+
+Sugerencia: usar un modelo autorregresivo de errores: $$\epsilon_t = \alpha_4\epsilon_{t-4}+\alpha_8\epsilon_{t-8}$$ **Finalmente, el análisis del modelo 4:**
+
+$H_0:$ Los errores siguen una distribución Normal
+
+$H_1:$ Los errores no siguen una distribución Normal
+
+```{r}
+res4 |> shapiro.test()
+```
+
+No se cumple el supuesto de normalidad de errores.
+
+$H_0:$ Los errores tienen varianza constante
+
+$H_1:$ Los errores no tienen varianza constante
+
+```{r}
+modelo4 |> ncvTest()
+```
+
+Sí se cumple el supuesto de homogeneidad de varianzas de los errores.
+
+$H_0:$ Los errores son independientes
+
+$H_1:$ Los errores no son independientes
+
+```{r}
+modelo4 |> durbinWatsonTest(alternative ="two.sided",
+                            max.lag =10,reps =1e5)
+```
+
+No se verifica la independencia de errores, se debe analizar qué sucede a cada 8 observaciones.
+
+**EN CONCLUSIÓN**, se elige el modelo 3:
+
+```{r}
+modelo3 <- lm(log_tiempo ~ diagnostic_score + prior_study_hours + anxiety_level, datos)
+```
+
+9.  Escribir la ecuación estimada del mejor modelo e interpretar sus coeficientes.
+
+```{r}
+modelo3 |> coef()
+```
+
+-   $Y$: Tiempo de resolución del examen (variable respuesta)
+
+-   $X_1$: puntaje en la prueba diagnóstica (variable independiente)
+
+-   $X_2$: Horas de estudio (variable independiente)
+
+-   $X_3$: Nivel de ansiedad (variable independiente)
+
+$$\hat{log(y)}=5.42-0.02X_1-0.04X_2+0.06X_3$$
+
+Para la interpretación de los coeficientes, ver [aquí](https://github.com/jeguns/EP6003/blob/main/U4/Clase%2011%20-%20regresi%C3%B3n.pdf).
+
+10. Ejecutar la prueba de hipótesis global del modelo, presentando el cuadro ANVA.
+
+$H_0: \beta_1=\beta_2=\beta_3=0$
+
+$H_1: \text{Al menos un} \beta_j \text{es distinto de cero}$
+
+$\alpha=0.05$
+
+```{r}
+y <- datos$log_tiempo
+X <- model.matrix(log_tiempo ~ diagnostic_score + prior_study_hours +
+                    anxiety_level, datos)
+aov(y ~ X) |> summary()
+```
+$F_{calc}=63.92$
+
+$F_{crit}=F_{0.95,3,158}=2.66$
+
+```{r}
+qf(0.95,3,158)
+```
+
+Dado que $F_{calc}>F_{crit}$ se rechaza $H_0$
+
+Equivalentemente, $pvalor<\alpha$. Se rechaza $H_0$
+
+Al menos una de las variables se relaciona linealmente con el logaritmo del tiempo.
+
+11. Ejecutar las pruebas de hipótesis individuales
+
+```{r}
+library(broom)
+modelo3 |> tidy()
+```
+
+$H_0: \beta_1=0 \qquad H_1:\beta_1\neq 0 \qquad \alpha=0.05\qquad pvalor=10^{-7}$
+
+Se rechaza la hipótesis nula, por lo tanto, el puntaje diagnóstico influye linealmente en el logaritmo del tiempo.
+
+$H_0: \beta_2=0 \qquad H_1:\beta_2\neq 0 \qquad \alpha=0.05\qquad pvalor=0.0294$
+
+Se rechaza la hipótesis nula, por lo tanto, las horas de estudio influyen linealmente en el logaritmo del tiempo.
+
+
+$H_0: \beta_3=0 \qquad H_1:\beta_3\neq 0 \qquad \alpha=0.05\qquad pvalor=0.034$
+
+Se rechaza la hipótesis nula, por lo tanto, el nivel de ansiedad influye linealmente en el logaritmo del tiempo.
+
+12. Interpretar el coeficiente de determinación ajustado
+
+```{r}
+modelo3 |> summary()
+```
+El modelo de regresión explica el 53.97% de la variabilidad del logaritmo del tiempo.
+
+
+13. Estimar el **tiempo mediano** del examen final si el puntaje diagnóstico fue de 65 puntos, estudió 10 horasy el nivel de ansiedad es 5.5, e indicar si coincide con el tiempo medio. Además, reportar el intervalo de confianza.
+
+```{r}
+xnuevo <- data.frame(diagnostic_score = 65,
+                     prior_study_hours = 10,
+                     anxiety_level = 5.5)
+modelo3 |> predict(newdata = xnuevo,
+                   interval = "confidence") |> exp() # confidence = media(na)
+```
+Cuando el puntaje diagnóstico fue de 65 puntos, estudió 10 horas y el nivel de ansiedad es 5.5, se estima que el tiempo mediano de resolución del examen es de 93.69 minutos, con un intervalo del 95% de confianza que va de 83.59 a 105.01 minutos.
+
+14. Predecir el tiempo que tardará en resolver el examen final **un estudiante** con puntaje diagnóstico de 50 puntos, que estudió 4.5 horas y con nivel de ansiedad 8. Compararlo con uno que tuvo 85 puntos diagnósticos, 12 horas de estudio y nivel de ansiedad 2.3
+
+```{r}
+xnuevo <- data.frame(diagnostic_score = c(50,85),
+                     prior_study_hours = c(4.5,12),
+                     anxiety_level = c(8,2.3))
+modelo3 |> predict(newdata = xnuevo,
+                   interval = "prediction") |> exp() # prediction = predicción individual
+```
+
