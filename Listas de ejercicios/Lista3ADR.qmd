@@ -1,0 +1,567 @@
+---
+title: "Lista de ejercicios 3 - Análisis de regresión"
+subtitle: "Ciclo nivelación 2025-2"
+author: "Mg. Sc. J. Eduardo Gamboa U."
+format: pdf
+editor: visual
+---
+
+Una empresa de análisis inmobiliario desea modelar el precio de venta de departamentos en una ciudad usando información estructural y comercial. Se construyó una base de datos de 100 propiedades vendidas recientemente.
+
+Variable respuesta: Precio de venta (miles de USD)
+
+Variables explicativas:
+
+-   x1: Área construida, en metros cuadrados
+
+-   x2: Índice de calidad constructiva (z-score), es un puntaje técnico de materiales y acabados.
+
+-   x3: Intensidad de publicidad digital (z-score), es una medida de exposición en portales y anuncios.
+
+-   x4: Tiene cochera (0: No, 1: Sí)
+
+-   x5: Zona de la ciudad (A = Zona periférica, B = Zona intermedia, C = Zona comercial, D = Zona premium)
+
+Objetivos:
+
+-   Identificar leverages, residuales y valores influenciales
+
+-   Seleccionar variables
+
+-   Reportar el modelo resultante e interpretar sus coeficientes estimados.
+
+- Presentar un primer alcance sobre el uso de  testing set. 
+
+\newpage
+
+1.  División del conjunto de datos en entrenamiento y prueba
+
+```{r message=F, warning=F}
+library(readxl)
+datos = read_xlsx('Lista3_datos.xlsx')
+```
+
+Divide los datos en 2 particiones: entrenamiento (75%) y prueba (25%), usando la semilla 12369874. Como resultado, obtenemos 375 observaciones en el (sub)conjunto de entrenamiento y 125 en el de prueba.
+
+```{r}
+library(rsample)
+set.seed(12369874)
+split_obj = initial_split(datos, prop = 0.75)
+train     = training(split_obj)
+test      = testing(split_obj)
+train |> nrow()
+test |> nrow()
+```
+
+\newpage
+
+2.  Creación del modelo inicial de regresión lineal
+
+El modelo se construye con los datos de entrenamiento. 
+
+```{r}
+modelo = lm(y ~ x1 + x2 + x3 + x4 + x5, data = train)
+modelo |> summary()
+```
+
+\newpage
+
+3.  Detección de leverages
+
+Se crea un vector con las observaciones que son leverage en el modelo, usando el criterio $h_{ii}>\frac{2k}{n}$
+
+```{r}
+modelo |> model.matrix() -> X
+X %*% solve(t(X) %*% X) %*% t(X) -> H
+train |> nrow() -> n
+modelo |> coef() |> length() -> k
+as.vector(which(diag(H) > 2*k/n)) -> leverages
+```
+
+Obtenemos una gráfica donde se aprecian los residuales vs leverage, donde se aprecia que las observaciones 357, 84 y 374 son algunas de las que presentan leverage alto.
+
+```{r message=FALSE, warning=FALSE}
+library(olsrr)
+modelo |> plot(which=5)
+```
+
+Se identificaron 7 leverage, y efectivamente las observaciones 374, 357 y 84 presentan leverage alto.
+
+```{r}
+leverages
+```
+
+\newpage
+
+4.  Detección de valores atípicos
+
+Calcula los residuales estudentizados y verifica aquellos cuyo valor absoluto es mayor a 2. De ser así, esa observación sería outlier.  
+
+```{r message=FALSE, warning=FALSE}
+library(MASS)
+as.vector(which((modelo |> studres() |> abs()) > 2)) -> outliers
+```
+
+La gráfica nos permite ver que las observaciones 80, 84, 91, 163 y 357 son valores atípicos, porque están fuera de los límites (margen rojo)
+
+```{r fig.height=3}
+modelo |> ols_plot_resid_stud()
+```
+
+Luego, esta gráfica permite ver las observaciones con alto leverage y también las atípicas.
+
+Por ejemplo:
+
+- 289: es un valor atípico pero no leverage
+
+- 357: es outlier y leverage
+
+- 319: es leverage pero no atípico
+
+```{r fig.height=3}
+modelo |> ols_plot_resid_lev()
+```
+
+Se identificaron 9 valores atípicos:
+
+```{r}
+outliers
+```
+
+\newpage
+
+5.  Detección de DFFITS
+
+Evaluamos los DFFITS del modelo, es decir aquellas observaciones que al ser retiradas ocasionan un gran cambio en los $\hat{y}$
+
+```{r}
+modelo |> coef() |> length() -> k
+train |> nrow() -> n
+(abs(modelo |> dffits())) -> dffits
+as.vector(which(dffits >= 2*sqrt(k/n))) -> inf_dffits
+```
+
+Gráficamente, apreciamos las observaciones con mayor DFFITS, siendo la 357 y 84 las que más influyen.
+
+```{r}
+modelo |> ols_plot_dffits()
+```
+
+12 valores influyentes según DFFITS, es decir aquellos que superaron el umbral de 0.29.
+
+```{r}
+inf_dffits
+```
+
+\newpage
+
+6.  Detección de DFBETAS
+
+Los DFBETAS permiten evaluar el cambio que tiene cada $\beta$ al eliminar cada observación.
+
+```{r}
+(abs(modelo |> dfbetas())) -> dfbetas
+as.vector(which(dfbetas[,1] >= 2/sqrt(n))) -> dfbeta0 
+
+as.vector(which(dfbetas[,2] >= 2/sqrt(n))) -> dfbeta1
+
+as.vector(which(dfbetas[,3] >= 2/sqrt(n))) -> dfbeta2
+
+as.vector(which(dfbetas[,4] >= 2/sqrt(n))) -> dfbeta3
+
+as.vector(which(dfbetas[,5] >= 2/sqrt(n))) -> dfbeta4
+
+as.vector(which(dfbetas[,6] >= 2/sqrt(n))) -> dfbeta5
+
+as.vector(which(dfbetas[,7] >= 2/sqrt(n))) -> dfbeta6
+
+as.vector(which(dfbetas[,8] >= 2/sqrt(n))) -> dfbeta7
+```
+
+Se aprecia los dfbetas para cada coeficiente / variable.
+
+```{r}
+modelo |> ols_plot_dfbetas()
+```
+
+Valores influyentes según DFBETAS: hay observaciones que, al ser retiradas, influyen en varios coeficientes, como por ejemplo 72, 84, 91, 374, 80, 163.
+
+```{r}
+dfbeta0
+
+dfbeta1
+
+dfbeta2
+
+dfbeta3
+
+dfbeta4
+
+dfbeta5
+
+dfbeta6
+
+dfbeta7
+```
+
+\newpage
+
+7.  Detección de valores influyentes según distancia de Cook
+
+Se halla la distancia de Cook para cada observación del modelo, y luego se verifica cuáles superan el umbral 4/n. 
+
+```{r}
+modelo |> cooks.distance() -> cookd
+as.vector(which(cookd > 4/n)) -> inf_cook
+```
+
+Gráficamente, observamos que 84 y 357 (que los identificamos como leverage y outliers), presentan las mayores distancias de Cook, es decir son aquellas que, al ser retiradas, cambia más el vector de coeficientes $\boldsymbol{\beta}$. Además hay otras observaciones con distancia de Cook algo altas (72, 80, 163, 362, 374)
+
+```{r}
+modelo |> ols_plot_cooksd_bar()
+```
+
+12 valores influyentes según Distancia de Cook:
+
+```{r}
+inf_cook
+```
+
+\newpage
+
+8.  Detección de valores influyentes según COVRATIO
+
+Se halla el COVRATIO de cada observación del modelo y luego se evalúa, convirtiendo en dos vectores aquellos con mayor (> 1 +3k/n) y menor (< 1-3k/n) COVRATIO. Finalmente, todo se junta en un solo vector.
+
+```{r}
+modelo |> covratio() |> abs() -> covra
+as.vector(which(covra > 1+3*k/n)) -> inf_covra1
+as.vector(which(covra < 1-3*k/n)) -> inf_covra2
+c(inf_covra1, inf_covra2) -> inf_covra
+```
+
+9 valores influyentes según COVRATIO: 
+
+```{r}
+inf_covra
+```
+
+En resumen, la observación 357 es aquella que es atípica, tiene leverage alto y es influencial en todos los criterios.
+
+```{r}
+lista <- list(leverages,
+              outliers,
+              inf_dffits,
+              dfbeta0,dfbeta1,dfbeta2,dfbeta3,dfbeta4,dfbeta5,dfbeta6,dfbeta7,
+              inf_cook,
+              inf_covra)
+
+inter <- Reduce(intersect, lista)
+inter
+```
+
+9.  Remoción de los valores leverage, atípicos e influyentes, es decir solo la observación 357.
+
+```{r}
+train2 <- train[-c(inter),]
+```
+
+10. Creación de un nuevo modelo con el conjunto de datos de entrenamiento "limpio".
+
+```{r}
+modelo2 = lm(y ~ x1 + x2 + x3 + x4 + x5, data = train2)
+```
+
+\newpage
+
+11. Comparación de los reportes del modelo original y el nuevo
+
+\scriptsize
+
+```{r}
+modelo |> summary()
+modelo2 |> summary() 
+```
+Tendió a aumentar la significancia de las variables, al disminuir la mayoría de los p-valores. Además, cambian los valores de los coeficientes estimados. 
+
+\normalsize
+
+
+\newpage
+
+12. Selección de variables según $R^2$ predictivo
+
+
+Se obtuvo un reporte de indicadores para todos los posibles modelos ($2^5=32$), de los cuales aquí se analiza el de $R^2$ predictivo.
+
+Se observan los modelos con el mayor $R^2$ predictivo, todos los valores son altos, se elige uno simple y con alto $R^2$ pred.
+
+```{r message=FALSE, warning=FALSE}
+library(olsrr)
+library(dplyr)
+ols_step_all_possible(modelo2)$result |> data.frame() -> resultados
+resultados |> 
+  select(n,predrsq,predictors) |>
+  arrange(-predrsq) |> 
+  head()
+```
+
+Modelo resultante: Y = f(x1, x2, x5)
+
+\newpage
+
+13. Selección de variables según AIC
+
+Del reporte de todos los modelos con sus indicadores, se elige los 6 con menor AIC (penaliza el número de variables).
+
+El modelo con x1, x2, x4 y x5 es el que tiene menor AIC, y no hay un modelo más simple que ese con un AIC tan bajo o con una diferencia de solo 2 unidades.
+
+```{r}
+resultados |> 
+  select(n,aic,predictors) |>
+  arrange(aic) |> 
+  head()
+```
+
+Modelo resultante: Y = f(x1, x2, x4, x5)
+
+\newpage
+
+14. Selección de variables según SBC
+
+Del reporte de todos los modelos con sus indicadores, se elige los 6 con menor SBC (penaliza el número de variables).
+
+Coloca en primer lugar al mismo modelo que el AIC, y del mismo modo no compite con ningún otro. 
+
+```{r}
+resultados |> 
+  select(n,sbc,predictors) |>
+  arrange(sbc) |> 
+  head()
+```
+
+Modelo resultante: Y = f(x1, x2, x4, x5)
+
+\newpage
+
+15. Selección de variables según SBIC
+
+Del reporte de todos los modelos con sus indicadores, se elige los 6 con menor SBIC (penaliza el número de variables).
+
+Coloca en primer lugar al mismo modelo que el AIC, y del mismo modo no compite con ningún otro, ya que el segundo es más complejo y los demás tienen SBIC muy alto.
+
+
+```{r}
+resultados |> 
+  select(n,sbic,predictors) |>
+  arrange(sbic) |> 
+  head()
+```
+
+Modelo resultante: Y = f(x1, x2, x4, x5)
+
+\newpage
+
+16. Selección de variables según Cp de Mallows
+
+Se reporta los 6 modelos con mejor criterio de Cp de Mallows, es decir aquellos cuyo valor se acerque al número de variables. 
+
+El mejor modelo incluye las variables x1, x2, x4, x5 igual que los criterios previos, y la diferencia absoluta cp - variables es solo 2.266637
+
+```{r}
+resultados |> 
+  select(n,cp,predictors) |>
+  mutate(dif = n-cp,.after=cp) |> 
+  arrange(abs(dif)) |> 
+  head()
+```
+
+Modelo resultante: Y = f(X1, X2, X4, X5)
+
+17. Selección del modelo según mejores subconjuntos
+
+Se reportan los mejores modelos de 1 variable, de 2 variables, de 3 variables, etc.
+
+Luego, se elige el modelo 4 (Y ~ x1 + x2 + x4 + x5), porque tiene los mejores indicadores:
+
+- $R^2$ predictivo más alto (aunque empatado con el 5)
+
+- $C_p$ de Mallows más cercano al número de variables (6.2666 - 4 = 2.2666)
+
+- AIC más bajo (1529.0782), aunque compite con el modelo 5 (1530.8059) porque difieren en menos de 2 unidades, pero el modelo 4 es más simple
+
+- SBIC más bajo (463.9225), aunque compite con el modelo 5 (465.7012) porque difieren en menos de 2 unidades, pero el modelo 4 es más simple
+
+- SBC más bajo (1560.4723) que todos los demás.
+
+\scriptsize
+
+```{r}
+modelo2 |> ols_step_best_subset()
+```
+
+Modelo resultante: Y = f(x1, x2, x4, x5)
+
+\newpage
+
+18. Selección del mejor modelo según forward selection
+
+\scriptsize
+
+La selección via forward va introduciendo variables al modelo. La primera a ser introducida fue $X_1$ por tener el menor p-valor entre todas las variables, lo que le otorgó la mayor significancia.
+
+Luego, estando ya $X_1$ en el modelo, la segunda variable en entrar fue $X_2$, luego $X_4$ y finalmente $X_5$. Como consecuencia natural y lógica, el AIC fue  reduciéndose. 
+
+```{r}
+modelo2 |> ols_step_forward_p()
+```
+La variable $X_1$ fue la primera en entrar porque redujo en mayor medida el AIC (más que las otras variables), pasando de 3678 a 1709. La segunda en entrar fue $X_2$, reduciendo el AIC de 1709 a 1614, y así sucesivamente entraron $X_4$ y $X_5$.
+
+```{r}
+modelo2 |> ols_step_forward_aic()
+```
+
+
+\normalsize
+
+Modelo resultante: Y = f(x1, x2, x4, x5)
+
+\newpage
+
+19. Selección del mejor modelo según backward selection
+
+\scriptsize
+
+Comienza con el modelo completo y retira $X_3$ porque fue la variable con el mayor pvalor. No retira más variables porque las demás no tienen un pvalor alto (solo x3 tiene pvalor>0.05).
+
+```{r}
+modelo2 |> ols_step_backward_p()
+```
+
+Comienza con el modelo completo y solo retira $X_3$ porque es la única, que al ser retirada, el AIC disminuye.
+
+```{r}
+modelo2 |> ols_step_backward_aic()
+```
+
+
+\normalsize
+
+Modelo resultante: Y = f(x1, x2, x4, x5)
+
+\newpage
+
+20. Selección del mejor modelo según stepwise selection
+
+\scriptsize
+
+El método stepwise agrega y retira variables, pero en este caso solo agrega por lo que el resultado es equivalente al de forward selection.
+
+```{r}
+modelo2 |> ols_step_both_p()
+```
+El método stepwise agrega y retira variables, pero en este caso solo agrega por lo que el resultado es equivalente al de forward selection.
+
+```{r}
+modelo2 |> ols_step_both_aic()
+```
+
+
+\normalsize
+
+Modelo resultante: Y = f(x1, x2, x4, x5)
+
+\newpage
+
+21. Uso del testing
+
+Hasta este punto, el modelo candidato con mayor fuerza es:
+
+Y = f(x1, x2, x4, x5)
+
+Lo vamos a poner a prueba.
+
+Construimos el modelo3: 
+
+```{r}
+modelo3 = lm(y ~ x1 + x2 + x4 + x5, data = train2)
+```
+
+Obtenemos las predicciones del modelo3 en el training y el testing.
+
+```{r}
+pred_train <- predict(modelo3, newdata = train2)
+pred_test  <- predict(modelo3, newdata = test)
+```
+
+Defino métricas para evaluar las predicciones:
+
+```{r}
+metricas <- function(y, yhat){
+  rmse <- sqrt(mean((y - yhat)^2)) # root mean square error
+  mae  <- mean(abs(y - yhat)) # mean absolute error
+  r2   <- 1 - sum((y - yhat)^2)/sum((y - mean(y))^2) # R^2
+  c(RMSE = rmse, MAE = mae, R2 = r2)
+}
+```
+
+Calculo las métricas en el training y testing, esperando que no haya una discrepancia muy grande. De haber discrepancia, significaría que el modelo funciona bien en el training, pero no en el testing (sobreajuste).
+
+```{r}
+m_train <- metricas(train2$y, pred_train)
+m_test  <- metricas(test$y,  pred_test)
+```
+
+```{r}
+m_train
+```
+
+```{r}
+m_test
+```
+Lo usual es que el RMSE y el MAE aumenten en el testing (un aprox más de 25% a 50%), y que el R2 baje.
+
+En este caso, la variación es pequeña, por lo que el modelo estaría funcionando bien en el conjunto testing. 
+
+
+
+21. Interpretación de coeficientes del mejor modelo
+
+```{r}
+modelo3 |> coef()
+```
+
+$$\hat{Y}=4.646 + 1.511x_1 -0.7752x_2+ 1.0567x_4 + 0.883x_{5b} - 0.872x_{5c} + 1.3x_{5d}$$
+
+Variable respuesta: Precio de venta (miles de USD)
+
+Variables explicativas:
+
+-   x1: Área construida, en metros cuadrados
+
+-   x2: Índice de calidad constructiva (z-score), es un puntaje técnico de materiales y acabados.
+
+-   x3: Intensidad de publicidad digital (z-score), es una medida de exposición en portales y anuncios.
+
+-   x4: Tiene cochera (0: No, 1: Sí)
+
+-   x5: Zona de la ciudad (A = Zona periférica, B = Zona intermedia, C = Zona comercial, D = Zona premium)
+
+$\hat{\beta}_0 = 4.646$ no tiene interpretación porque el área no puede ser de 0 $m^2$
+
+$\hat{\beta}_1 = 1.511$: por cada metro cuadrado adicional de área construida, el precio promedio de venta aumenta en 1.511 miles de dólares, manteniendo constante las demás variables. 
+
+$\hat{\beta}_2 = -0.7752$: Un aumento de una unidad en el índice de calidad constructiva se asocia con una disminución promedio de 0.7752 miles de dólares en el precio de venta, manteniendo constantes las demás variables.
+
+$\hat{\beta}_4 = 1.0567$: los inmuebles que tienen cochera presentan en promedio un precio de venta 1.0567 miles de dólares mayor que aquellos que no tienen cochera, manteniendo constantes las demás variables.
+
+$\hat{\beta}_{5b} = 0.883$: los inmuebles ubicados en la zona intermedia tienen en promedio un precio de venta 0.883 miles de dólares mayor que los ubicados en la zona periférica, manteniendo constantes las demás variables.
+
+$\hat{\beta}_{5c} = -0.872$: los inmuebles ubicados en la zona comercial tienen en promedio un precio de venta 0.872 miles de dólares menor que los ubicados en la zona periférica, manteniendo constantes las demás variables.
+
+$\hat{\beta}_{5d} = 1.3$: los inmuebles ubicados en la zona premium tienen en promedio un precio de venta 1.3 miles de dólares mayor que los ubicados en la zona periférica, manteniendo constantes las demás variables.
+
+¿Cuál es la ecuación estimada de regresión para un inmueble con cochera en la zona periférica?
+
+$$\hat{Y}=4.646 + 1.511x_1 -0.7752x_2+ 1.0567$$
+$$\hat{Y}=5.7207 + 1.511x_1 - 0.7752x_2$$
