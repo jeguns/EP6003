@@ -1,0 +1,234 @@
+---
+title: "Lista de ejercicios 4 - Análisis de regresión"
+subtitle: "Ciclo nivelación 2025-2"
+author: "Mg. Sc. J. Eduardo Gamboa U."
+format: pdf
+editor: visual
+---
+
+Una universidad desea comprender qué factores influyen en el puntaje obtenido por los estudiantes en el examen final de un curso introductorio.
+
+Para ello, recolecta información de 600 estudiantes sobre tres aspectos:
+
+-   Puntaje: Resultado del examen final (0–100 puntos), es la variable que se desea predecir.
+
+-   Estudio: Número de horas de estudio semanal dedicadas al curso.
+
+-   Curso: Modalidad en que el estudiante llevó el curso, la cual puede ser online, presencial o híbrido.
+
+-   Sueno: Número promedio de horas de sueño diario.
+
+Se sospecha que:
+
+-   El puntaje aumenta con las horas de estudio.
+
+-   La modalidad del curso puede generar diferencias en rendimiento.
+
+-   Las horas de estudio pueden diferir entre las modalidades del curso.
+
+-   El efecto del sueño no es estrictamente lineal, sino potencialmente curvo.
+
+Ajustar diversos modelos de regresión lineal considerando:
+
+-   el efecto de interacción, o no, de modalidad $\times$ estudio sobre el puntaje del examen.
+
+-   el efecto lineal, cuadrático o cúbico del sueño sobre el puntaje del examen.
+
+Comparar estos modelos, con énfasis en su desempeño predictivo.
+
+## Lectura de datos
+
+```{r}
+library(readxl)
+datos <- read_excel('Lista4_datos.xlsx')
+datos |> head()
+datos |> nrow()
+datos |> colnames()
+```
+
+## División en training y testing
+
+```{r}
+n <- datos |> nrow()
+set.seed(2025)
+id    <- sample(1:n, 480)
+train <- datos[id,]
+test  <- datos[-id,]
+train |> head()
+test |> head()
+```
+
+## Modelo 1
+
+Modelo con interacción entre estudio y curso, y efecto cúbico del sueño
+
+```{r}
+mod1 <- lm(Puntaje ~ Estudio*Curso + poly(Sueno,3), data = train)
+mod1 |> summary()
+mod1 |> car::vif()
+```
+
+```{r message=FALSE}
+rtrain1 <- data.frame(real = train$Puntaje,
+                      pred = predict(mod1, train)) 
+library(caret)
+postResample(rtrain1$pred, rtrain1$real)
+```
+
+```{r}
+rtest1 <- data.frame(real = test$Puntaje,
+                     pred = predict(mod1, test)) 
+postResample(rtest1$pred, rtest1$real)
+```
+
+## Modelo 2
+
+Modelo sin interacción entre estudio y curso, y efecto cúbico del sueño
+
+```{r}
+mod2 <- lm(Puntaje ~ Estudio + Curso + poly(Sueno,3), data = train)
+mod2 |> summary()
+mod2 |> car::vif()
+```
+
+```{r message=FALSE}
+rtrain2 <- data.frame(real = train$Puntaje,
+                      pred = predict(mod2, train)) 
+postResample(rtrain2$pred, rtrain2$real)
+```
+
+```{r}
+rtest2 <- data.frame(real = test$Puntaje,
+                     pred = predict(mod2, test)) 
+postResample(rtest2$pred, rtest2$real)
+```
+
+## Modelo 3
+
+Modelo con interacción entre estudio y curso, y efecto cuadrático del sueño
+
+```{r}
+mod3 <- lm(Puntaje ~ Estudio*Curso + poly(Sueno,2), data = train)
+mod3 |> summary()
+mod3 |> car::vif()
+```
+
+```{r message=FALSE}
+rtrain3 <- data.frame(real = train$Puntaje,
+                      pred = predict(mod3, train)) 
+postResample(rtrain3$pred, rtrain3$real)
+```
+
+```{r}
+rtest3 <- data.frame(real = test$Puntaje,
+                     pred = predict(mod3, test)) 
+postResample(rtest3$pred, rtest3$real)
+```
+
+## Modelo 4
+
+Modelo sin interacción entre estudio y curso, y efecto cuadrático del sueño
+
+```{r}
+mod4 <- lm(Puntaje ~ Estudio + Curso + poly(Sueno,2), data = train)
+mod4 |> summary()
+mod4 |> car::vif()
+```
+
+```{r message=FALSE}
+rtrain4 <- data.frame(real = train$Puntaje,
+                      pred = predict(mod4, train)) 
+postResample(rtrain4$pred, rtrain4$real)
+```
+
+```{r}
+rtest4 <- data.frame(real = test$Puntaje,
+                     pred = predict(mod4, test)) 
+postResample(rtest4$pred, rtest4$real)
+```
+
+## Modelo 5
+
+Modelo con interacción entre estudio y curso, y efecto lineal del sueño
+
+```{r}
+mod5 <- lm(Puntaje ~ Estudio*Curso + Sueno, data = train)
+mod5 |> summary()
+mod5 |> car::vif()
+```
+
+```{r message=FALSE}
+rtrain5 <- data.frame(real = train$Puntaje,
+                      pred = predict(mod5, train)) 
+postResample(rtrain5$pred, rtrain5$real)
+```
+
+```{r}
+rtest5 <- data.frame(real = test$Puntaje,
+                     pred = predict(mod5, test)) 
+postResample(rtest5$pred, rtest5$real)
+```
+
+## Modelo 6
+
+Modelo sin interacción entre estudio y curso, y efecto lineal del sueño
+
+```{r}
+mod6 <- lm(Puntaje ~ Estudio + Curso + Sueno, data = train)
+mod6 |> summary()
+mod6 |> car::vif()
+```
+
+```{r message=FALSE}
+rtrain6 <- data.frame(real = train$Puntaje,
+                      pred = predict(mod6, train)) 
+postResample(rtrain6$pred, rtrain6$real)
+```
+
+```{r}
+rtest6 <- data.frame(real = test$Puntaje,
+                     pred = predict(mod6, test)) 
+postResample(rtest6$pred, rtest6$real)
+```
+
+Resumiendo:
+
+![](images/clipboard-606276063.png)
+
+Los modelos 4 y 6 son los ganadores, tienen mejores indicadores y son los más sencillos.
+
+Comencemos a compararlos con criterios estadísticos:
+
+```{r}
+mod4 |> residuals() |> shapiro.test()
+mod6 |> residuals() |> shapiro.test()
+```
+
+```{r}
+mod4 |> car::ncvTest()
+mod6 |> car::ncvTest()
+```
+
+```{r}
+mod4 |> lmtest::dwtest()
+mod6 |> lmtest::dwtest()
+```
+
+```{r}
+mod4 |> AIC()
+mod6 |> AIC()
+```
+
+```{r}
+summary(mod4)$adj.r.squared
+summary(mod6)$adj.r.squared
+```
+
+Finalmente, el criterio de AIC nos sugiere utilizar el modelo 4:
+
+Modelo sin interacción entre estudio y curso, y efecto cuadrático del sueño
+
+```{r}
+mod4 <- lm(Puntaje ~ Estudio + Curso + poly(Sueno,2), data = train)
+mod4 |> summary()
+```
